@@ -11,8 +11,8 @@ This repository contains the curated, production-ready implementation of the Bon
 ## Project Structure
 
 ```
-├── 01_training/           # Dataset preparation and model training
-├── 02_sensitivity/        # FANIM computation and sensitivity analysis  
+├── 01_training/          # Dataset preparation and model training
+├── 02_nim_collection/    # FANIM/BANIM computation and sensitivity analysis  
 ├── 03_pruning/           # Core pruning algorithms (Wilcoxon focus)
 ├── 04_evaluation/        # Results analysis and comparison tools
 └── shared/               # Common utilities and configuration
