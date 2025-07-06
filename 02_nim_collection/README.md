@@ -1,4 +1,4 @@
-# Sensitivity Analysis & FANIM
+# NIM Analysis & FANIM
 
 Forward Advanced Neuron Impact Metrics computation.
 
