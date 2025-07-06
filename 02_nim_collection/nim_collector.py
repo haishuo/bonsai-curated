@@ -29,8 +29,9 @@ import time
 # Import our modules
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent / "01_training"))
 from shared.forge_config import get_bonsai_config
-from training.wine_quality_ds import WineQualityDataset, WineQualityMLP, load_wine_quality_data
+from wine_quality_ds import WineQualityDataset, WineQualityMLP, load_wine_quality_data
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Training configuration for raw data collection
 RAW_COLLECTION_CONFIG = {
-    'epochs': 501,  # Collect data for all 501 epochs
+    'epochs': 500,  # Train for 500 epochs + 1 extra for FANIM forward pass
     'learning_rate': 0.001,
     'weight_decay': 1e-4,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
@@ -87,13 +88,13 @@ class RawNIMCollector:
                     self.gradients[layer_name] = grad_output[0].detach().clone()
             return hook
         
-        # Register hooks on target layers
+        # Register full backward hooks (fixes the deprecation warning)
         if hasattr(self.model, 'fc1'):
-            self.model.fc1.register_backward_hook(make_hook('fc1'))
+            self.model.fc1.register_full_backward_hook(make_hook('fc1'))
         if hasattr(self.model, 'fc2'):
-            self.model.fc2.register_backward_hook(make_hook('fc2'))
+            self.model.fc2.register_full_backward_hook(make_hook('fc2'))
         if hasattr(self.model, 'fc3'):
-            self.model.fc3.register_backward_hook(make_hook('fc3'))
+            self.model.fc3.register_full_backward_hook(make_hook('fc3'))
     
     def collect_batch_raw_data(self, batch_X: torch.Tensor, batch_y: torch.Tensor, 
                               epoch: int, batch_idx: int, 
@@ -198,7 +199,7 @@ class RawNIMCollector:
             Path to saved raw data file
         """
         logger.info("Starting training with raw batch-level data collection...")
-        logger.info(f"Collecting data for {self.config['epochs']} epochs")
+        logger.info(f"Training for {self.config['epochs']} epochs + 1 FANIM collection epoch")
         
         # Setup training components
         criterion = nn.CrossEntropyLoss()
@@ -211,13 +212,13 @@ class RawNIMCollector:
         # Setup gradient collection hooks
         self._setup_gradient_hooks()
         
-        # Collect raw data for all epochs
+        # PHASE 1: Train for 500 epochs with data collection
         start_time = time.time()
         total_batches_processed = 0
         
         for epoch in range(1, self.config['epochs'] + 1):
             epoch_start = time.time()
-            logger.info(f"Epoch {epoch}/{self.config['epochs']}")
+            logger.info(f"Epoch {epoch}/{self.config['epochs']} (TRAINING)")
             
             epoch_batches = []
             
@@ -248,14 +249,70 @@ class RawNIMCollector:
             if epoch % 50 == 0:
                 self._save_intermediate_raw_data(epoch)
         
+        # Save the trained model from epoch 500 (before FANIM collection)
+        final_model_path = self.forge_config.model_path("wine_quality_trained_500epochs")
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'epoch': self.config['epochs'],
+            'optimizer_state_dict': optimizer.state_dict(),
+            'config': self.config,
+            'architecture': self.model.get_layer_sizes(),
+            'total_batches_processed': total_batches_processed
+        }, final_model_path)
+        
+        logger.info(f"✅ Trained model saved (epoch 500): {final_model_path}")
+        
+        # PHASE 2: Epoch 501 - Forward-only pass for FANIM activation collection
+        logger.info(f"Epoch 501/501 (FANIM COLLECTION - forward only, no training)")
+        self.model.eval()  # Set to evaluation mode
+        
+        fanim_batches = []
+        with torch.no_grad():  # No gradients needed for FANIM collection
+            for batch_idx, (batch_X, batch_y) in enumerate(train_loader):
+                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                
+                # Forward pass only to get activations for FANIM
+                outputs = self.model(batch_X)
+                
+                # Store forward activations for FANIM computation
+                fanim_activations = {}
+                for layer_name in self.layer_names:
+                    if layer_name in self.model.activations:
+                        fanim_activations[layer_name] = self.model.activations[layer_name].detach().clone().cpu().numpy()
+                
+                # Create FANIM collection record (no gradients, no training)
+                fanim_batch_data = {
+                    'epoch': 501,
+                    'batch_idx': batch_idx,
+                    'train_loss': None,  # No loss computed
+                    'val_loss': None,    # No validation for FANIM collection
+                    'raw_gradients': {},  # No gradients collected
+                    'raw_activations': fanim_activations,  # Only activations
+                    'batch_size': len(batch_X),
+                    'timestamp': time.time(),
+                    'fanim_collection': True  # Flag to identify FANIM data
+                }
+                
+                fanim_batches.append(fanim_batch_data)
+                total_batches_processed += 1
+                
+                if batch_idx % 20 == 0:
+                    logger.info(f"  FANIM Batch {batch_idx}: Activations collected")
+        
+        # Store FANIM data
+        self.raw_data_batches.extend(fanim_batches)
+        logger.info(f"✅ FANIM collection complete: {len(fanim_batches)} batches")
+        
         # Save final raw dataset
         total_time = time.time() - start_time
         final_output = self._save_complete_raw_dataset(total_time, total_batches_processed)
         
-        logger.info(f"✅ Raw data collection complete!")
+        logger.info(f"✅ Complete data collection finished!")
         logger.info(f"📊 Total batches: {total_batches_processed}")
         logger.info(f"⏱️  Total time: {total_time/60:.1f} minutes")
-        logger.info(f"📁 Saved to: {final_output}")
+        logger.info(f"📁 Raw data: {final_output}")
+        logger.info(f"🧠 Trained model (epoch 500): {final_model_path}")
+        logger.info(f"🔬 FANIM activations: Epoch 501 data included")
         
         return final_output
     
