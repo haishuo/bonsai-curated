@@ -29,6 +29,7 @@ class RiskProfile(Enum):
     PRODUCTION_ML = "holm_bonferroni"       # Balanced - slight efficiency gain acceptable
     RESEARCH_EXPERIMENT = "benjamini_hochberg"  # Power over caution - explore aggressively
     NEURAL_ARCHITECTURE = "benjamini_yekutieli"  # Accounts for neuron correlations
+    NO_CORRECTION = "no_correction"  # ADD THIS
 
 @dataclass
 class StatisticalResult:
@@ -82,6 +83,16 @@ class CorrectionMethod(ABC):
     def get_name(self) -> str:
         """Return method name."""
         pass
+
+class NoCorrection(CorrectionMethod):
+    """No correction: Use raw p-values directly (bonsai-archive style)."""
+    
+    def adjust(self, p_values: np.ndarray) -> np.ndarray:
+        """Return raw p-values unchanged - no multiple comparison correction."""
+        return p_values  # Just return the original p-values
+    
+    def get_name(self) -> str:
+        return "no_correction"
 
 class BonferroniCorrection(CorrectionMethod):
     """Bonferroni correction: Controls Family-Wise Error Rate (FWER)."""
@@ -174,7 +185,8 @@ def get_correction_method(method_name: str, alpha: float = 0.05) -> CorrectionMe
         'bonferroni': BonferroniCorrection(alpha),
         'holm_bonferroni': HolmBonferroniCorrection(alpha), 
         'benjamini_hochberg': BenjaminiHochbergCorrection(alpha),
-        'benjamini_yekutieli': BenjaminiYekuteliCorrection(alpha)
+        'benjamini_yekutieli': BenjaminiYekuteliCorrection(alpha),
+        'no_correction': NoCorrection(alpha)  # ADD THIS LINE
     }
     
     if method_name not in methods:

@@ -76,13 +76,11 @@ class ComprehensivePruningComparison:
         """
         if risk_profiles is None:
             risk_profiles = [
-                RiskProfile.PRODUCTION_ML,
-                RiskProfile.RESEARCH_EXPERIMENT,
-                RiskProfile.NEURAL_ARCHITECTURE
+                RiskProfile.NO_CORRECTION
             ]
             
         if alpha_levels is None:
-            alpha_levels = [0.01, 0.05, 0.1]
+            alpha_levels = [0.1, 0.2, 0.3, 0.4, 0.5]  # Common significance levels
         
         print("🌳 TESTING BONSAI METHODS")
         print("=" * 50)
@@ -140,7 +138,7 @@ class ComprehensivePruningComparison:
             Dictionary of results
         """
         if sparsity_levels is None:
-            sparsity_levels = [0.1, 0.2, 0.3, 0.4, 0.5]
+            sparsity_levels = [0.1, 0.2, 0.3, 0.4, 0.9]
             
         if magnitude_types is None:
             magnitude_types = ["L2", "L1"]
